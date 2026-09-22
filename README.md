@@ -32,7 +32,7 @@ Render's free tier has no persistent disk, so nothing about vector storage or up
 This project is being built incrementally, in commit-sized steps:
 
 - [x] 1. Repo scaffold (backend + frontend skeletons, both verified booting locally)
-- [ ] 2. Ingestion pipeline + sample docs
+- [x] 2. Ingestion pipeline + sample docs (loaders/chunking/safety verified locally; live embed+upsert pending real Voyage AI + Qdrant Cloud credentials)
 - [ ] 3. LangGraph RAG graph with citations
 - [ ] 4. FastAPI endpoints (chat, ingest, health)
 - [ ] 5. Next.js chat UI wired to backend
