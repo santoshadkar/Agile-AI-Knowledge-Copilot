@@ -9,6 +9,13 @@ Every answer cites which source document(s) and domain it drew from. You can ask
 
 This is a personal learning + portfolio project, not tied to any employer or confidential content — everything in `backend/sample_docs/` is generic, non-proprietary sample material used to prove the pipeline works.
 
+## Live
+
+- **App:** https://agile-ai-knowledge-copilot-golden-eagle1.vercel.app
+- **API:** https://agile-ai-knowledge-copilot-backend.onrender.com (docs at `/docs`)
+
+Backend is on Render's free tier and spins down after 15 minutes of inactivity — the first request after a quiet period takes roughly a minute to wake it back up.
+
 ## Architecture
 
 ```
@@ -16,11 +23,11 @@ frontend/  Next.js (React) — chat UI + admin/upload view          → deployed
 backend/   FastAPI + LangGraph — agentic RAG graph, ingestion API  → deployed to Render
            ├─ query-analysis/routing node (which domain(s) to search)
            ├─ retrieval node (Qdrant, filtered by domain)
-           ├─ generation node (Gemini, produces cited answers)
+           ├─ generation node (produces cited answers)
            └─ check / re-retrieve loop (if first retrieval looks insufficient)
 ```
 
-- **LLM (generation):** Google Gemini API — originally scoped as Claude, switched because the Anthropic API requires a payment method on file and Gemini's free tier doesn't. Uses a flash + flash-lite failover pair rather than a single model, since Gemini's free tier is tightly rate-limited per model.
+- **LLM (generation):** a three-tier fallback chain, not a single model — `gemini-flash-latest` → `gemini-flash-lite-latest` → Groq (`openai/gpt-oss-120b`). Originally scoped as Claude alone, switched because the Anthropic API requires a payment method on file and Gemini's free tier doesn't. Live testing during deployment surfaced two real Gemini failure modes a single model/provider can't route around: broad intermittent "high demand" 503s hitting multiple Gemini models at once, and a genuine per-model **daily** quota (~20 requests/day/model on the free tier, confirmed live via a `429 RESOURCE_EXHAUSTED` response) that doesn't clear until the next day. Groq runs on entirely separate infrastructure, so neither failure mode touches it — confirmed live by watching a request fall through Gemini's daily-quota error and land on Groq for a correct, cited answer.
 - **Embeddings:** Voyage AI
 - **Vector store:** Qdrant Cloud (free tier) — chosen over Pinecone/pgvector for generous free-tier limits, clean LangChain integration via `langchain-qdrant`, and per-chunk metadata filtering (domain + source filename) without being tied to a single LLM vendor
 - **Orchestration:** LangChain (document loading/retrieval primitives) + LangGraph (the actual agentic flow, not a single chain)
@@ -39,8 +46,8 @@ This project is being built incrementally, in commit-sized steps:
 - [x] 6. Local end-to-end preview (both servers run locally and were clicked through together in step 5 -- domain filter, chat error handling, and CORS/routing bugs were caught this way, not by review)
 - [x] 7. Tests -- 41 tests, all passing, verified hermetic (pass with zero real credentials present -- deliberately confirmed by removing .env entirely and re-running, not just assumed): chunking (incl. regression coverage for the orphan-chunk bug from step 2), safety guard (incl. the "fundamentals contains nda" false-positive regression), loaders (all 3 formats against the real sample docs), graph nodes with mocked LLM/vector-store calls (incl. regression coverage for the routing "contents are required" bug from step 5), and an API smoke test covering every endpoint's happy and error paths
 - [x] 8. GitHub push ([santoshadkar/Agile-AI-Knowledge-Copilot](https://github.com/santoshadkar/Agile-AI-Knowledge-Copilot) -- 15 commits, full history preserved)
-- [ ] 9. Deploy (Render + Vercel)
-- [ ] 10. Verify deployed version
+- [x] 9. Deploy (Render + Vercel) -- backend on Render (native Python runtime, no Docker; verified with a clean-venv build-and-run simulation before deploying), frontend on Vercel (CLI, non-interactive). CORS locked to the real Vercel origin (not wildcard). Along the way: caught and fixed a broad Gemini capacity issue (bumped retries) and a genuine per-model daily quota exhaustion (added Groq as a third fallback tier) -- both found by actually load-testing the live deployment, not assumed
+- [ ] 10. Verify deployed version -- live and working (see the **Live** section above and the build-status entries below), pending your own confirmation from your own device
 
 ## Local development
 
@@ -117,7 +124,7 @@ Full interactive docs at `/docs` once the backend is running. Summary:
   "domains_searched": ["agile-coaching"]
 }
 ```
-Returns `503` if both the primary and fallback Gemini models fail.
+Returns `503` only if all three generation tiers fail (both Gemini models and Groq).
 
 **`POST /ingest`** (multipart form)
 - `file`: the PDF/DOCX/MD to ingest
@@ -130,7 +137,8 @@ Returns `422` with `{"reasons": [...]}` if the confidentiality guard trips and `
 
 | Variable | Where | Purpose |
 |---|---|---|
-| `GEMINI_API_KEY` | backend | Gemini API access for the generation node |
+| `GEMINI_API_KEY` | backend | Gemini API access, tiers 1-2 of the generation fallback chain |
+| `GROQ_API_KEY` | backend | Groq API access, tier 3 of the generation fallback chain |
 | `VOYAGE_API_KEY` | backend | Voyage AI embeddings for ingestion + retrieval |
 | `QDRANT_URL` | backend | Qdrant Cloud cluster URL |
 | `QDRANT_API_KEY` | backend | Qdrant Cloud API key |
