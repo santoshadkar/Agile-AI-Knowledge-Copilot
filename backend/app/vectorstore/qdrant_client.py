@@ -11,7 +11,14 @@ from functools import lru_cache
 from langchain_qdrant import QdrantVectorStore
 from langchain_voyageai import VoyageAIEmbeddings
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    KeywordIndexParams,
+    MatchValue,
+    VectorParams,
+)
 
 from app.config import get_settings
 
@@ -40,9 +47,20 @@ def get_embeddings() -> VoyageAIEmbeddings:
     )
 
 
+@lru_cache
 def get_vector_store() -> QdrantVectorStore:
     """Returns a QdrantVectorStore bound to the configured collection,
-    creating the collection on first use if it doesn't exist yet."""
+    creating the collection on first use if it doesn't exist yet.
+
+    Cached (and constructed with validate_embeddings=False,
+    validate_collection_config=False) because LangChain's QdrantVectorStore
+    otherwise fires its own "dummy_text" embedding call on every construction
+    to sanity-check the vector dimension -- harmless normally, but on Voyage's
+    unverified-account rate limit (3 requests/minute) that extra, un-retried
+    call was burning through the budget alongside the real embedding calls.
+    We already control the collection's exact config above, so the check is
+    redundant here.
+    """
     settings = get_settings()
     client = get_qdrant_client()
 
@@ -54,9 +72,45 @@ def get_vector_store() -> QdrantVectorStore:
                 distance=Distance.COSINE,
             ),
         )
+        # Qdrant Cloud requires an explicit index before a field can be used
+        # in a filter -- needed both for delete_by_source below and for the
+        # domain-filtered retrieval (single-domain vs. cross-domain search)
+        # the chat UI will do in build step 3.
+        for field_name in ("metadata.domain", "metadata.source"):
+            client.create_payload_index(
+                collection_name=settings.qdrant_collection_name,
+                field_name=field_name,
+                field_schema=KeywordIndexParams(type="keyword", is_tenant=False),
+            )
 
     return QdrantVectorStore(
         client=client,
         collection_name=settings.qdrant_collection_name,
         embedding=get_embeddings(),
+        validate_embeddings=False,
+        validate_collection_config=False,
+    )
+
+
+def delete_by_source(*, domain: str, source: str) -> None:
+    """Delete every chunk previously ingested for this (domain, source) pair.
+
+    Called before re-inserting so ingesting the same file twice -- a re-run
+    after a partial failure, or a deliberate re-ingest after editing a doc --
+    replaces its chunks instead of accumulating duplicates alongside them.
+    """
+    settings = get_settings()
+    client = get_qdrant_client()
+
+    if not client.collection_exists(settings.qdrant_collection_name):
+        return
+
+    client.delete(
+        collection_name=settings.qdrant_collection_name,
+        points_selector=Filter(
+            must=[
+                FieldCondition(key="metadata.domain", match=MatchValue(value=domain)),
+                FieldCondition(key="metadata.source", match=MatchValue(value=source)),
+            ]
+        ),
     )
