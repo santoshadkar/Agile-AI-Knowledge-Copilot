@@ -16,11 +16,11 @@ frontend/  Next.js (React) — chat UI + admin/upload view          → deployed
 backend/   FastAPI + LangGraph — agentic RAG graph, ingestion API  → deployed to Render
            ├─ query-analysis/routing node (which domain(s) to search)
            ├─ retrieval node (Qdrant, filtered by domain)
-           ├─ generation node (Claude, produces cited answers)
+           ├─ generation node (Gemini, produces cited answers)
            └─ check / re-retrieve loop (if first retrieval looks insufficient)
 ```
 
-- **LLM (generation):** Anthropic Claude API
+- **LLM (generation):** Google Gemini API — originally scoped as Claude, switched because the Anthropic API requires a payment method on file and Gemini's free tier doesn't. Uses a flash + flash-lite failover pair rather than a single model, since Gemini's free tier is tightly rate-limited per model.
 - **Embeddings:** Voyage AI
 - **Vector store:** Qdrant Cloud (free tier) — chosen over Pinecone/pgvector for generous free-tier limits, clean LangChain integration via `langchain-qdrant`, and per-chunk metadata filtering (domain + source filename) without being tied to a single LLM vendor
 - **Orchestration:** LangChain (document loading/retrieval primitives) + LangGraph (the actual agentic flow, not a single chain)
@@ -91,7 +91,7 @@ App: http://localhost:3018
 
 | Variable | Where | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | backend | Claude API access for the generation node |
+| `GEMINI_API_KEY` | backend | Gemini API access for the generation node |
 | `VOYAGE_API_KEY` | backend | Voyage AI embeddings for ingestion + retrieval |
 | `QDRANT_URL` | backend | Qdrant Cloud cluster URL |
 | `QDRANT_API_KEY` | backend | Qdrant Cloud API key |

@@ -11,7 +11,7 @@ pydantic-settings==2.7.1
 langchain==1.4.2
 langchain-core==1.6.4
 langgraph==1.2.12
-langchain-anthropic==1.7.2
+langchain-google-genai==4.4.0
 langchain-voyageai==0.4.1
 langchain-qdrant==1.1.0
 
