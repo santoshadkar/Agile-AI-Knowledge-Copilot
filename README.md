@@ -36,8 +36,8 @@ This project is being built incrementally, in commit-sized steps:
 - [x] 3. LangGraph RAG graph with citations (route -> retrieve -> retry-loop -> generate; control flow verified via mocked-LLM tests, retrieval verified live against Qdrant; live generation blocked by a Gemini server-side outage during testing -- see graph/nodes.py)
 - [x] 4. FastAPI endpoints (POST /chat, POST /ingest, GET /health -- all exercised live via TestClient: validation errors, the confidentiality-guard block-then-force-override path, a real ingest happy path, and the 503 the /chat endpoint returns cleanly when Gemini is down, which it genuinely was during this testing)
 - [x] 5. Next.js chat UI wired to backend (chat with domain filter + citations, admin upload page; verified live end-to-end against the real backend, which surfaced and fixed a CORS port bug and a Gemini routing bug -- see the two step-5 commits)
-- [ ] 6. Local end-to-end preview
-- [ ] 7. Tests (retrieval/generation nodes + API smoke test)
+- [x] 6. Local end-to-end preview (both servers run locally and were clicked through together in step 5 -- domain filter, chat error handling, and CORS/routing bugs were caught this way, not by review)
+- [x] 7. Tests -- 41 tests, all passing, verified hermetic (pass with zero real credentials present -- deliberately confirmed by removing .env entirely and re-running, not just assumed): chunking (incl. regression coverage for the orphan-chunk bug from step 2), safety guard (incl. the "fundamentals contains nda" false-positive regression), loaders (all 3 formats against the real sample docs), graph nodes with mocked LLM/vector-store calls (incl. regression coverage for the routing "contents are required" bug from step 5), and an API smoke test covering every endpoint's happy and error paths
 - [ ] 8. GitHub push
 - [ ] 9. Deploy (Render + Vercel)
 - [ ] 10. Verify deployed version
@@ -56,6 +56,18 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 Health check: http://localhost:8000/health
+
+### Run the tests
+
+```bash
+cd backend
+pytest
+```
+
+No real API keys needed — `tests/conftest.py` sets fake credentials before
+anything imports the app, and every test that would otherwise call
+Gemini/Voyage/Qdrant mocks that call out. Safe to run in CI with no `.env`
+at all.
 
 ### Ingest the sample docs
 
