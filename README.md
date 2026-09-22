@@ -47,7 +47,9 @@ This project is being built incrementally, in commit-sized steps:
 - [x] 7. Tests -- 41 tests, all passing, verified hermetic (pass with zero real credentials present -- deliberately confirmed by removing .env entirely and re-running, not just assumed): chunking (incl. regression coverage for the orphan-chunk bug from step 2), safety guard (incl. the "fundamentals contains nda" false-positive regression), loaders (all 3 formats against the real sample docs), graph nodes with mocked LLM/vector-store calls (incl. regression coverage for the routing "contents are required" bug from step 5), and an API smoke test covering every endpoint's happy and error paths
 - [x] 8. GitHub push ([santoshadkar/Agile-AI-Knowledge-Copilot](https://github.com/santoshadkar/Agile-AI-Knowledge-Copilot) -- 15 commits, full history preserved)
 - [x] 9. Deploy (Render + Vercel) -- backend on Render (native Python runtime, no Docker; verified with a clean-venv build-and-run simulation before deploying), frontend on Vercel (CLI, non-interactive). CORS locked to the real Vercel origin (not wildcard). Along the way: caught and fixed a broad Gemini capacity issue (bumped retries) and a genuine per-model daily quota exhaustion (added Groq as a third fallback tier) -- both found by actually load-testing the live deployment, not assumed
-- [ ] 10. Verify deployed version -- live and working (see the **Live** section above and the build-status entries below), pending your own confirmation from your own device
+- [x] 10. Verify deployed version -- confirmed working from the project owner's own device: a real question against the live app returned a correct, accurately-cited answer
+
+**All 10 build steps complete.** The app is live, tested (48 backend tests), documented, and verified end-to-end from a real device -- not just from this development environment.
 
 ## Local development
 
