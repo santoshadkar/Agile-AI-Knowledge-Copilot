@@ -32,7 +32,7 @@ Render's free tier has no persistent disk, so nothing about vector storage or up
 This project is being built incrementally, in commit-sized steps:
 
 - [x] 1. Repo scaffold (backend + frontend skeletons, both verified booting locally)
-- [x] 2. Ingestion pipeline + sample docs (loaders/chunking/safety verified locally; live embed+upsert pending real Voyage AI + Qdrant Cloud credentials)
+- [x] 2. Ingestion pipeline + sample docs (verified live: 4 sample docs / 26 chunks embedded and upserted to Qdrant Cloud, cross-domain and domain-filtered retrieval both confirmed working)
 - [ ] 3. LangGraph RAG graph with citations
 - [ ] 4. FastAPI endpoints (chat, ingest, health)
 - [ ] 5. Next.js chat UI wired to backend
@@ -56,6 +56,25 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 Health check: http://localhost:8000/health
+
+### Ingest the sample docs
+
+```bash
+cd backend
+python scripts/ingest_sample_docs.py
+```
+
+Loads every file under `sample_docs/<domain>/`, chunks it, embeds it with
+Voyage AI, and upserts it into Qdrant. Re-running is safe — each file's
+existing chunks are deleted before its new ones are inserted, so nothing
+duplicates.
+
+**Note:** a Voyage AI account with no payment method on file is capped at
+3 requests/minute (the 200M free tokens still apply — this only throttles
+request *rate*). The pipeline retries through that with exponential
+backoff, so ingestion just runs slower rather than failing; add a payment
+method in the [Voyage dashboard](https://dashboard.voyageai.com/) if you
+want faster bulk ingestion for a larger corpus later.
 
 ### Frontend
 
