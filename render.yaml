@@ -1,0 +1,45 @@
+# Render "Blueprint" file: https://render.com/docs/blueprint-spec
+#
+# On render.com, choose "New +" -> "Blueprint" and point it at this repo.
+# Render reads this file and provisions the service below automatically,
+# then redeploys it on every push to main.
+#
+# Native Python runtime, not Docker -- deliberately, since Docker wasn't
+# available to build-test locally while setting this up, and this path
+# could be fully verified locally instead (the exact buildCommand and
+# startCommand below are what was actually run and confirmed working
+# throughout this project's local development).
+#
+# Render's free web service tier requires no credit card, gives 750 free
+# instance-hours/month, and spins down after 15 minutes of inactivity (the
+# next request wakes it back up, taking roughly a minute). Fine for a
+# demo/portfolio project; not for something that needs to always be
+# instantly responsive.
+services:
+  - type: web
+    name: agile-ai-knowledge-copilot-backend
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      # Matches this project's local dev Python (3.14.6) -- Render's
+      # current default is 3.14.3 anyway, but pinned explicitly for
+      # reproducibility rather than relying on "whatever's default today."
+      - key: PYTHON_VERSION
+        value: 3.14.6
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: VOYAGE_API_KEY
+        sync: false
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: QDRANT_COLLECTION_NAME
+        value: agile_ai_knowledge
+      # Set to the real Vercel frontend URL once it exists -- no wildcard.
+      - key: CORS_ORIGINS
+        sync: false
