@@ -1,0 +1,28 @@
+# --- Web framework ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+pydantic-settings==2.7.1
+
+# --- Orchestration ---
+# Pinned to whatever pip resolved as compatible with this machine's Python 3.14 —
+# note these are LangChain/LangGraph 1.x (a major-version jump from the 0.3.x docs
+# you may see in older tutorials; the graph-building API we use is the same shape).
+langchain==1.4.2
+langchain-core==1.6.4
+langgraph==1.2.12
+langchain-anthropic==1.7.2
+langchain-voyageai==0.4.1
+langchain-qdrant==1.1.0
+
+# --- Vector store client ---
+qdrant-client==1.19.1
+
+# --- Document loading for ingestion ---
+pypdf==5.1.0
+python-docx==1.1.2
+
+# --- Testing ---
+pytest==8.3.4
+pytest-asyncio==0.25.2
+httpx==0.28.1
