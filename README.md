@@ -38,7 +38,7 @@ This project is being built incrementally, in commit-sized steps:
 - [x] 5. Next.js chat UI wired to backend (chat with domain filter + citations, admin upload page; verified live end-to-end against the real backend, which surfaced and fixed a CORS port bug and a Gemini routing bug -- see the two step-5 commits)
 - [x] 6. Local end-to-end preview (both servers run locally and were clicked through together in step 5 -- domain filter, chat error handling, and CORS/routing bugs were caught this way, not by review)
 - [x] 7. Tests -- 41 tests, all passing, verified hermetic (pass with zero real credentials present -- deliberately confirmed by removing .env entirely and re-running, not just assumed): chunking (incl. regression coverage for the orphan-chunk bug from step 2), safety guard (incl. the "fundamentals contains nda" false-positive regression), loaders (all 3 formats against the real sample docs), graph nodes with mocked LLM/vector-store calls (incl. regression coverage for the routing "contents are required" bug from step 5), and an API smoke test covering every endpoint's happy and error paths
-- [ ] 8. GitHub push
+- [x] 8. GitHub push ([santoshadkar/Agile-AI-Knowledge-Copilot](https://github.com/santoshadkar/Agile-AI-Knowledge-Copilot) -- 15 commits, full history preserved)
 - [ ] 9. Deploy (Render + Vercel)
 - [ ] 10. Verify deployed version
 
