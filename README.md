@@ -35,7 +35,7 @@ This project is being built incrementally, in commit-sized steps:
 - [x] 2. Ingestion pipeline + sample docs (verified live: 4 sample docs / 26 chunks embedded and upserted to Qdrant Cloud, cross-domain and domain-filtered retrieval both confirmed working)
 - [x] 3. LangGraph RAG graph with citations (route -> retrieve -> retry-loop -> generate; control flow verified via mocked-LLM tests, retrieval verified live against Qdrant; live generation blocked by a Gemini server-side outage during testing -- see graph/nodes.py)
 - [x] 4. FastAPI endpoints (POST /chat, POST /ingest, GET /health -- all exercised live via TestClient: validation errors, the confidentiality-guard block-then-force-override path, a real ingest happy path, and the 503 the /chat endpoint returns cleanly when Gemini is down, which it genuinely was during this testing)
-- [ ] 5. Next.js chat UI wired to backend
+- [x] 5. Next.js chat UI wired to backend (chat with domain filter + citations, admin upload page; verified live end-to-end against the real backend, which surfaced and fixed a CORS port bug and a Gemini routing bug -- see the two step-5 commits)
 - [ ] 6. Local end-to-end preview
 - [ ] 7. Tests (retrieval/generation nodes + API smoke test)
 - [ ] 8. GitHub push
