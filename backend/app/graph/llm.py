@@ -28,8 +28,16 @@ GENERATION_MODEL = "gemini-flash-latest"
 GENERATION_FALLBACK_MODEL = "gemini-flash-lite-latest"
 ROUTING_MODEL = "gemini-flash-lite-latest"  # cheap classification task, doesn't need the larger model
 
+# Bumped from 2 to 4 after live testing during deployment turned up a
+# broad, intermittent "high demand" 503 affecting multiple Gemini flash
+# models simultaneously -- not model-specific, so switching models doesn't
+# reliably help, but retrying does: the same model that failed one moment
+# succeeded ~19s later on a subsequent attempt. More retries per model,
+# on top of the primary/fallback split across two models, meaningfully
+# raises the odds of landing in an available moment within one request
+# instead of requiring the user to manually resend.
 _TIMEOUT_SECONDS = 30
-_MAX_RETRIES = 2
+_MAX_RETRIES = 4
 
 logger = logging.getLogger(__name__)
 
