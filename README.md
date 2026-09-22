@@ -34,7 +34,7 @@ This project is being built incrementally, in commit-sized steps:
 - [x] 1. Repo scaffold (backend + frontend skeletons, both verified booting locally)
 - [x] 2. Ingestion pipeline + sample docs (verified live: 4 sample docs / 26 chunks embedded and upserted to Qdrant Cloud, cross-domain and domain-filtered retrieval both confirmed working)
 - [x] 3. LangGraph RAG graph with citations (route -> retrieve -> retry-loop -> generate; control flow verified via mocked-LLM tests, retrieval verified live against Qdrant; live generation blocked by a Gemini server-side outage during testing -- see graph/nodes.py)
-- [ ] 4. FastAPI endpoints (chat, ingest, health)
+- [x] 4. FastAPI endpoints (POST /chat, POST /ingest, GET /health -- all exercised live via TestClient: validation errors, the confidentiality-guard block-then-force-override path, a real ingest happy path, and the 503 the /chat endpoint returns cleanly when Gemini is down, which it genuinely was during this testing)
 - [ ] 5. Next.js chat UI wired to backend
 - [ ] 6. Local end-to-end preview
 - [ ] 7. Tests (retrieval/generation nodes + API smoke test)
@@ -86,6 +86,33 @@ npm run dev -- --port 3018
 ```
 
 App: http://localhost:3018
+
+## API
+
+Full interactive docs at `/docs` once the backend is running. Summary:
+
+**`GET /health`** → `{"status": "ok"}`
+
+**`POST /chat`**
+```json
+// request
+{"message": "What does flow metrics measure?", "domain_filter": "agile-coaching"}  // domain_filter: "agile-coaching" | "claude-certification" | "both", defaults to "both"
+
+// response
+{
+  "answer": "Flow metrics track cycle time, throughput, and WIP... [1]",
+  "citations": [{"index": 1, "domain": "agile-coaching", "source": "agile-maturity-framework.md", "heading_path": "Agile Maturity Assessment Framework > Dimension: Flow Metrics"}],
+  "domains_searched": ["agile-coaching"]
+}
+```
+Returns `503` if both the primary and fallback Gemini models fail.
+
+**`POST /ingest`** (multipart form)
+- `file`: the PDF/DOCX/MD to ingest
+- `domain`: `"agile-coaching"` | `"claude-certification"`
+- `force` (optional, default `false`): ingest anyway if the confidentiality guard flags the file
+
+Returns `422` with `{"reasons": [...]}` if the confidentiality guard trips and `force` wasn't set; `400` for an unsupported file type; `413` over 10MB.
 
 ## Environment variables
 
