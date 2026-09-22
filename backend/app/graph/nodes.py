@@ -52,11 +52,10 @@ def route_query(state: RAGState) -> dict:
     if domain_filter != "both":
         return {"domains_to_search": [domain_filter], "routing_reasoning": "explicit domain filter from the UI"}
 
-    prompt = (
+    routing_system_prompt = (
         "You are routing a question to one or both knowledge domains of a retrieval system:\n"
         "- agile-coaching: agile maturity assessment, Scrum/SAFe, Big Room Planning, team facilitation\n"
         "- claude-certification: the Claude API, prompt engineering, building with Claude\n\n"
-        f"Question: {state['question']}\n\n"
         "Reply with exactly one line, one of: agile-coaching / claude-certification / both. "
         "Use \"both\" if the question could plausibly draw on either domain or you're unsure."
     )
@@ -66,7 +65,15 @@ def route_query(state: RAGState) -> dict:
         # to drop to -- just one call, relying on the client's own built-in
         # retries (see llm.py) rather than invoke_with_fallback's two-model
         # dance, which would only be calling the same model against itself.
-        raw = extract_text(get_routing_llm().invoke([SystemMessage(content=prompt)]))
+        # Gemini requires at least one "user" turn -- a SystemMessage alone
+        # fails with "contents are required." (caught live while building
+        # this: it degraded to the safe "both" default rather than crashing,
+        # but the routing feature itself was silently doing nothing).
+        messages = [
+            SystemMessage(content=routing_system_prompt),
+            HumanMessage(content=f"Question: {state['question']}"),
+        ]
+        raw = extract_text(get_routing_llm().invoke(messages))
         decision = raw.strip().lower()
     except Exception as exc:
         logger.warning("Routing LLM call failed (%s); defaulting to both domains", exc)
