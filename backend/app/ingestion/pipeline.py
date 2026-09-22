@@ -8,26 +8,16 @@ in it, just the pipeline itself.
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
-from voyageai.error import RateLimitError
-
 from app.ingestion.chunking import chunk_markdown
 from app.ingestion.loaders import load_as_markdown
 from app.ingestion.safety import scan_for_confidentiality_markers
+from app.resilience import voyage_retry
 from app.vectorstore.qdrant_client import delete_by_source, get_vector_store
 
 VALID_DOMAINS = {"agile-coaching", "claude-certification"}
 
-# Voyage AI caps accounts with no payment method on file at 3 requests/minute
-# (the 200M free tokens still apply -- this only throttles request rate).
-# Backs off hard enough to ride that out rather than requiring a card on file
-# just to prove the pipeline works.
-@retry(
-    retry=retry_if_exception_type(RateLimitError),
-    wait=wait_exponential(multiplier=5, min=5, max=60),
-    stop=stop_after_attempt(6),
-    reraise=True,
-)
+
+@voyage_retry
 def _add_documents_with_backoff(vector_store, chunks) -> None:
     vector_store.add_documents(chunks)
 

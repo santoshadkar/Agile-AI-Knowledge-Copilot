@@ -33,7 +33,7 @@ This project is being built incrementally, in commit-sized steps:
 
 - [x] 1. Repo scaffold (backend + frontend skeletons, both verified booting locally)
 - [x] 2. Ingestion pipeline + sample docs (verified live: 4 sample docs / 26 chunks embedded and upserted to Qdrant Cloud, cross-domain and domain-filtered retrieval both confirmed working)
-- [ ] 3. LangGraph RAG graph with citations
+- [x] 3. LangGraph RAG graph with citations (route -> retrieve -> retry-loop -> generate; control flow verified via mocked-LLM tests, retrieval verified live against Qdrant; live generation blocked by a Gemini server-side outage during testing -- see graph/nodes.py)
 - [ ] 4. FastAPI endpoints (chat, ingest, health)
 - [ ] 5. Next.js chat UI wired to backend
 - [ ] 6. Local end-to-end preview
