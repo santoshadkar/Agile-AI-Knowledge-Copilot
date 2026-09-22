@@ -12,6 +12,7 @@ overrides whatever's in backend/.env during a local run too.
 import os
 
 os.environ.setdefault("GEMINI_API_KEY", "test-gemini-key")
+os.environ.setdefault("GROQ_API_KEY", "test-groq-key")
 os.environ.setdefault("VOYAGE_API_KEY", "test-voyage-key")
 os.environ.setdefault("QDRANT_URL", "http://localhost:6333")
 os.environ.setdefault("QDRANT_API_KEY", "test-qdrant-key")
