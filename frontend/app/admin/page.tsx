@@ -85,8 +85,9 @@ export default function AdminPage() {
 
       {status.kind === "success" && (
         <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800 dark:border-green-900 dark:bg-green-950 dark:text-green-200">
-          Ingested <strong>{status.result.source}</strong> into <strong>{status.result.domain}</strong> —{" "}
-          {status.result.chunk_count} chunks.
+          <strong>{status.result.source}</strong> ({status.result.chunk_count} chunks) queued for{" "}
+          <strong>{status.result.domain}</strong>. Processing in the background — give it a moment, then
+          it&apos;ll be searchable in chat.
         </div>
       )}
 

@@ -21,6 +21,12 @@ export interface IngestResponse {
   domain: string;
   chunk_count: number;
   confidentiality_flags: string[];
+  // The backend responds as soon as the file is validated and chunked --
+  // the actual embed+upsert runs afterward in the background (a large
+  // document blocking the full request was timing out on Render's free
+  // tier). chunk_count is accurate (chunking already happened), but the
+  // document isn't searchable in chat until a bit after this response.
+  status: "processing";
 }
 
 /** Thrown for the 422 the backend returns when a file trips the

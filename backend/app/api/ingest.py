@@ -5,17 +5,25 @@ The uploaded file only ever touches a TemporaryDirectory for the duration
 of one request, never a persistent path -- consistent with Render's free
 tier having no persistent disk. It's deleted the moment the request
 finishes regardless of success or failure.
+
+Responds as soon as the fast part (load, safety-scan, chunk) is done and
+runs the slow part (embed + upsert) as a background task, rather than
+blocking the whole request on it. This isn't a style preference -- a real
+document (~80KB, ~40 sections) reproducibly triggered a 502 from Render's
+free-tier proxy after ~67 seconds when this endpoint was fully synchronous,
+which surfaced in the browser as a generic "Failed to fetch" with no
+useful detail (see the pipeline.py module docstring for the full story).
 """
 
 import tempfile
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from app.ingestion.loaders import SUPPORTED_EXTENSIONS
-from app.ingestion.pipeline import ConfidentialityFlagError, ingest_file
+from app.ingestion.pipeline import ConfidentialityFlagError, commit_ingestion, prepare_ingestion
 
 router = APIRouter()
 
@@ -32,10 +40,12 @@ class IngestResponse(BaseModel):
     domain: str
     chunk_count: int
     confidentiality_flags: list[str]
+    status: Literal["processing"] = "processing"
 
 
 @router.post("/ingest", response_model=IngestResponse)
 async def ingest(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     domain: IngestDomain = Form(...),
     force: bool = Form(False),
@@ -59,16 +69,21 @@ async def ingest(
         tmp_path.write_bytes(contents)
 
         try:
-            result = ingest_file(tmp_path, domain=domain, force=force)
+            prepared = prepare_ingestion(tmp_path, domain=domain, force=force)
         except ConfidentialityFlagError as exc:
             raise HTTPException(
                 status_code=422,
                 detail={"message": str(exc), "reasons": exc.reasons, "source": exc.source},
             ) from exc
+        # prepared.chunks are already-extracted Document objects in memory,
+        # not dependent on tmp_path -- safe to hand to a background task
+        # that runs after this TemporaryDirectory is cleaned up.
+
+    background_tasks.add_task(commit_ingestion, prepared)
 
     return IngestResponse(
-        source=result.source,
-        domain=result.domain,
-        chunk_count=result.chunk_count,
-        confidentiality_flags=result.confidentiality_flags,
+        source=prepared.source,
+        domain=prepared.domain,
+        chunk_count=len(prepared.chunks),
+        confidentiality_flags=prepared.confidentiality_flags,
     )

@@ -2,8 +2,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from langchain_core.documents import Document
 
-from app.ingestion.pipeline import ConfidentialityFlagError, IngestResult
+from app.ingestion.pipeline import ConfidentialityFlagError, PreparedIngestion
 from app.main import app
 
 client = TestClient(app)
@@ -100,7 +101,10 @@ def test_ingest_rejects_oversized_file():
 
 
 def test_ingest_confidentiality_flag_returns_422_with_reasons():
-    with patch("app.api.ingest.ingest_file", side_effect=ConfidentialityFlagError("nda.md", ["filename contains 'nda'"])):
+    with patch(
+        "app.api.ingest.prepare_ingestion",
+        side_effect=ConfidentialityFlagError("nda.md", ["filename contains 'nda'"]),
+    ):
         res = client.post(
             "/ingest",
             files={"file": ("nda.md", b"# Title\n\nbody", "text/markdown")},
@@ -113,10 +117,24 @@ def test_ingest_confidentiality_flag_returns_422_with_reasons():
     assert detail["source"] == "nda.md"
 
 
-def test_ingest_happy_path():
-    fake_result = IngestResult(source="doc.md", domain="agile-coaching", chunk_count=3, confidentiality_flags=[])
+def test_ingest_happy_path_responds_fast_and_schedules_background_commit():
+    """The slow part (embed + upsert) must NOT run before the response is
+    sent -- that synchronous design is exactly what caused a real 502 from
+    Render's proxy on a large document (see pipeline.py's docstring).
+    TestClient runs BackgroundTasks before client.post() returns, so
+    asserting commit_ingestion was called here still proves the wiring is
+    correct without needing a real embedding call."""
+    fake_prepared = PreparedIngestion(
+        source="doc.md",
+        domain="agile-coaching",
+        chunks=[Document(page_content="chunk text", metadata={})],
+        confidentiality_flags=[],
+    )
 
-    with patch("app.api.ingest.ingest_file", return_value=fake_result) as mock_ingest:
+    with (
+        patch("app.api.ingest.prepare_ingestion", return_value=fake_prepared),
+        patch("app.api.ingest.commit_ingestion") as mock_commit,
+    ):
         res = client.post(
             "/ingest",
             files={"file": ("doc.md", b"# Title\n\nSome body text.", "text/markdown")},
@@ -125,5 +143,11 @@ def test_ingest_happy_path():
 
     assert res.status_code == 200
     body = res.json()
-    assert body == {"source": "doc.md", "domain": "agile-coaching", "chunk_count": 3, "confidentiality_flags": []}
-    mock_ingest.assert_called_once()
+    assert body == {
+        "source": "doc.md",
+        "domain": "agile-coaching",
+        "chunk_count": 1,
+        "confidentiality_flags": [],
+        "status": "processing",
+    }
+    mock_commit.assert_called_once_with(fake_prepared)
