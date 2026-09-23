@@ -15,16 +15,22 @@ assumed from docs):
 3. Deploying and testing against the real production site turned up a
    broad, intermittent "high demand" 503 affecting multiple Gemini flash
    models AT THE SAME TIME (not one model specifically overloaded --
-   the whole flash tier short on capacity for a stretch). A model that
-   failed at one moment succeeded ~19s later on a fresh attempt, which is
-   what justified bumping retries. But retries alone can't help if Google's
-   infrastructure itself is degraded across the board, which is what
-   motivated adding Groq (openai/gpt-oss-120b) as a third tier: it runs on
-   entirely separate infrastructure, so a Gemini-side capacity issue
-   doesn't touch it at all.
-
-Every generation call goes through a fallback CHAIN now, not just a single
-fallback pair: gemini-flash-latest -> gemini-flash-lite-latest -> Groq.
+   the whole flash tier short on capacity for a stretch). This first
+   justified bumping max_retries 2 -> 4 -- which then caused a *real*
+   regression, a single /chat request measured at 155 seconds end to end.
+   Root cause: ChatGoogleGenerativeAI's max_retries wraps ANOTHER retry
+   layer inside the underlying google-genai SDK itself (tenacity,
+   exponential backoff up to 60s, up to 5 attempts by default) -- our
+   "4 retries" was compounding against that hidden layer, not adding to
+   it linearly. Confirmed by direct measurement: max_retries=0 makes a
+   genuine failure surface in ~4s; higher values blow up non-linearly.
+4. The actual fix isn't "tune retries correctly" -- it's that per-model
+   retries are the wrong tool once you have a real multi-provider fallback
+   CHAIN (gemini-flash-latest -> gemini-flash-lite-latest -> Groq, added
+   after discovering Gemini's daily per-model quota). Retrying a struggling
+   model just delays reaching a model that isn't struggling. Each model
+   here gets ONE attempt (max_retries=0) with a short timeout; the chain
+   itself is the redundancy, not internal retries within a single tier.
 """
 
 import logging
@@ -42,12 +48,14 @@ ROUTING_MODEL = "gemini-flash-lite-latest"  # cheap classification task, doesn't
 GROQ_MODEL = "openai/gpt-oss-120b"  # confirmed available via a live models.list() call -- Groq's lineup
 # has moved on from the llama-3.x names common in older docs/tutorials.
 
-# Bumped from 2 to 4 after live testing during deployment turned up the
-# intermittent Gemini capacity issue described above.
-_GEMINI_TIMEOUT_SECONDS = 30
-_GEMINI_MAX_RETRIES = 4
-_GROQ_TIMEOUT_SECONDS = 30
-_GROQ_MAX_RETRIES = 2
+# max_retries=0 disables both the LangChain-level retry AND the hidden
+# internal google-genai SDK retry it wraps -- confirmed by direct
+# measurement (see point 3 above). One fast attempt per tier; the 3-model
+# chain is what provides redundancy, not retrying within a tier.
+_GEMINI_TIMEOUT_SECONDS = 15
+_GEMINI_MAX_RETRIES = 0
+_GROQ_TIMEOUT_SECONDS = 15
+_GROQ_MAX_RETRIES = 0
 
 logger = logging.getLogger(__name__)
 
