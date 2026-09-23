@@ -40,11 +40,20 @@ def get_qdrant_client() -> QdrantClient:
 @lru_cache
 def get_embeddings() -> VoyageAIEmbeddings:
     settings = get_settings()
-    return VoyageAIEmbeddings(
+    embeddings = VoyageAIEmbeddings(
         voyage_api_key=settings.voyage_api_key,
         model=VOYAGE_MODEL,
         output_dimension=VOYAGE_OUTPUT_DIMENSION,
     )
+    # VoyageAIEmbeddings has no public way to set a request timeout -- its
+    # underlying voyageai.Client defaults to timeout=None (no timeout at
+    # all), confirmed by reading _BaseClient.__init__, which stashes it in
+    # self._params["request_timeout"] with no setter. Left unset, a single
+    # stalled call could hang indefinitely, never even giving our own
+    # voyage_retry (app/resilience.py) a chance to kick in -- retries only
+    # help once an exception is actually raised. 15s bounds that.
+    embeddings._client._params["request_timeout"] = 15
+    return embeddings
 
 
 @lru_cache
