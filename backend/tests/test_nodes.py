@@ -152,7 +152,7 @@ def test_generate_with_no_retrieved_docs_has_no_citations():
     assert result["citations"] == []
 
 
-def test_generate_propagates_error_when_both_models_fail():
-    with patch("app.graph.nodes.invoke_with_fallback", side_effect=RuntimeError("Both Gemini models failed.")):
+def test_generate_propagates_error_when_all_models_fail():
+    with patch("app.graph.nodes.invoke_with_fallback", side_effect=RuntimeError("All 3 model(s) failed.")):
         with pytest.raises(RuntimeError):
             generate({"question": "q", "retrieved_docs": []})

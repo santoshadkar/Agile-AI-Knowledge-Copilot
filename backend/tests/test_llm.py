@@ -6,8 +6,14 @@ from app.graph.llm import invoke_with_fallback
 
 
 def _fake_model(name: str, *, content=None, error=None):
-    model = MagicMock()
+    # spec=[] so MagicMock doesn't auto-generate a truthy `.model_name`
+    # attribute on access -- _model_label checks model_name before model
+    # (matching ChatOpenAI's real attribute name), and an unset MagicMock
+    # attribute is truthy, not None, which silently broke this the first
+    # time the label-lookup order changed.
+    model = MagicMock(spec=["invoke", "model", "model_name"])
     model.model = name
+    model.model_name = name
     if error is not None:
         model.invoke.side_effect = error
     else:
@@ -37,14 +43,14 @@ def test_falls_through_to_second_model_on_first_failure():
 
 
 def test_three_tier_chain_falls_through_to_third_model():
-    """Mirrors the real chain: gemini primary -> gemini fallback -> groq."""
-    primary = _fake_model("gemini-flash-latest", error=RuntimeError("503 high demand"))
-    secondary = _fake_model("gemini-flash-lite-latest", error=RuntimeError("504 timeout"))
-    tertiary = _fake_model("openai/gpt-oss-120b", content="groq answer")
+    """Mirrors the real chain: qwen -> liquid -> nvidia, all via OpenRouter."""
+    primary = _fake_model("qwen/qwen3.8-27b:free", error=RuntimeError("429 rate-limited"))
+    secondary = _fake_model("liquid/lfm-2.5-2.6b:free", error=RuntimeError("503 provider overloaded"))
+    tertiary = _fake_model("nvidia/nemotron-3-super-120b-a12b:free", content="third-tier answer")
 
     result = invoke_with_fallback(["msg"], primary, secondary, tertiary)
 
-    assert result == "groq answer"
+    assert result == "third-tier answer"
     for model in (primary, secondary, tertiary):
         model.invoke.assert_called_once()
 

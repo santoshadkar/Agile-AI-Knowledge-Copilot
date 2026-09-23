@@ -15,7 +15,7 @@ from app.graph.llm import (
     extract_text,
     get_generation_fallback_llm,
     get_generation_llm,
-    get_groq_llm,
+    get_generation_second_fallback_llm,
     get_routing_llm,
     invoke_with_fallback,
 )
@@ -165,7 +165,9 @@ def generate(state: RAGState) -> dict:
         HumanMessage(content=f"Context:\n\n{context}\n\nQuestion: {state['question']}"),
     ]
 
-    answer = invoke_with_fallback(messages, get_generation_llm(), get_generation_fallback_llm(), get_groq_llm())
+    answer = invoke_with_fallback(
+        messages, get_generation_llm(), get_generation_fallback_llm(), get_generation_second_fallback_llm()
+    )
 
     citations: list[Citation] = [
         Citation(

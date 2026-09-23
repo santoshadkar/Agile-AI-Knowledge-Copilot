@@ -30,9 +30,7 @@ services:
       # reproducibility rather than relying on "whatever's default today."
       - key: PYTHON_VERSION
         value: 3.14.6
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: GROQ_API_KEY
+      - key: OPENROUTER_API_KEY
         sync: false
       - key: VOYAGE_API_KEY
         sync: false

@@ -1,101 +1,99 @@
 """LLM model factories + fallback-chain helper, shared by the routing and
 generation nodes.
 
-Things learned by actually calling these APIs while building this (not
-assumed from docs):
+History (kept because each entry is a real bug found by testing, not
+hypothetical, and the reasoning matters for whoever touches this next):
 
-1. Gemini version-pinned model names (gemini-3.7-flash, gemini-3.5-flash-lite)
-   returned transient 503/504 errors during testing; the gemini-*-latest
-   aliases didn't, and they track Google's current release instead of a
-   pinned version that can get deprecated -- used throughout.
-2. ChatGoogleGenerativeAI's .content is not reliably a plain string -- it
-   can come back as a list of content-part dicts (e.g. [{"type": "text",
-   "text": "...", "extras": {...}}]). extract_text() normalizes that
-   (ChatGroq's .content is a plain string, so this is a no-op there).
-3. Deploying and testing against the real production site turned up a
+1. Originally Gemini-only (gemini-flash-latest -> gemini-flash-lite-latest).
+   Deploying and testing against the real production site turned up a
    broad, intermittent "high demand" 503 affecting multiple Gemini flash
-   models AT THE SAME TIME (not one model specifically overloaded --
-   the whole flash tier short on capacity for a stretch). This first
-   justified bumping max_retries 2 -> 4 -- which then caused a *real*
-   regression, a single /chat request measured at 155 seconds end to end.
-   Root cause: ChatGoogleGenerativeAI's max_retries wraps ANOTHER retry
-   layer inside the underlying google-genai SDK itself (tenacity,
-   exponential backoff up to 60s, up to 5 attempts by default) -- our
-   "4 retries" was compounding against that hidden layer, not adding to
-   it linearly. Confirmed by direct measurement: max_retries=0 makes a
-   genuine failure surface in ~4s; higher values blow up non-linearly.
-4. The actual fix isn't "tune retries correctly" -- it's that per-model
-   retries are the wrong tool once you have a real multi-provider fallback
-   CHAIN (gemini-flash-latest -> gemini-flash-lite-latest -> Groq, added
-   after discovering Gemini's daily per-model quota). Retrying a struggling
-   model just delays reaching a model that isn't struggling. Each model
-   here gets ONE attempt (max_retries=0) with a short timeout; the chain
-   itself is the redundancy, not internal retries within a single tier.
+   models AT THE SAME TIME -- not one model overloaded, the whole flash
+   tier short on capacity for a stretch.
+2. Bumping max_retries 2 -> 4 to ride that out caused a real regression:
+   a single /chat request measured at 155 seconds. Root cause:
+   ChatGoogleGenerativeAI's max_retries wraps a SECOND, hidden retry layer
+   inside the google-genai SDK itself (tenacity, backoff up to 60s, up to
+   5 attempts by default) -- "4 retries" was compounding against that
+   hidden layer, not adding to it linearly. Fixed by setting max_retries=0
+   everywhere and relying on the fallback chain itself for redundancy,
+   not retries within one tier.
+3. Also hit a genuine per-model DAILY quota (not just transient): a live
+   429 showed "limit: 20, model: gemini-3.8-flash" -- this is what
+   motivated moving off a Gemini-only chain instead of just tuning retries
+   further; a daily quota doesn't clear in seconds like a 503 does.
+4. Replaced Gemini + Groq with OpenRouter (one OpenAI-compatible API,
+   proxying many providers/models). Tested OpenRouter's own native
+   request-level "models" fallback array first and found it behaved
+   unpredictably (a confusing indirect failure through a specific
+   provider, not a clean fall-through) -- not trusting an opaque
+   server-side feature we can't fully verify, so this still uses our own
+   invoke_with_fallback loop, just pointed at 3 different free OpenRouter
+   models instead of 2 Gemini variants + Groq. Individual free-model
+   failures here surface fast (well under a couple seconds, confirmed
+   live), so a 3-model sequential loop stays fast even in the worst case.
+
+Chain (deliberately 3 different underlying providers/architectures behind
+OpenRouter, to reduce correlated-failure risk): qwen/qwen3.8-27b:free ->
+liquid/lfm-2.5-2.6b:free -> nvidia/nemotron-3-super-120b-a12b:free.
 """
 
 import logging
 from functools import lru_cache
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 
 from app.config import get_settings
 
-GENERATION_MODEL = "gemini-flash-latest"
-GENERATION_FALLBACK_MODEL = "gemini-flash-lite-latest"
-ROUTING_MODEL = "gemini-flash-lite-latest"  # cheap classification task, doesn't need the larger model
-GROQ_MODEL = "openai/gpt-oss-120b"  # confirmed available via a live models.list() call -- Groq's lineup
-# has moved on from the llama-3.x names common in older docs/tutorials.
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-# max_retries=0 disables both the LangChain-level retry AND the hidden
-# internal google-genai SDK retry it wraps -- confirmed by direct
-# measurement (see point 3 above). One fast attempt per tier; the 3-model
-# chain is what provides redundancy, not retrying within a tier.
-_GEMINI_TIMEOUT_SECONDS = 15
-_GEMINI_MAX_RETRIES = 0
-_GROQ_TIMEOUT_SECONDS = 15
-_GROQ_MAX_RETRIES = 0
+# Confirmed live via a real models.list() call against OpenRouter plus real
+# completions against each -- OpenRouter's free-model lineup has moved past
+# the llama-3.x / gpt-3.5 names common in older docs/tutorials, same pattern
+# as every other provider touched in this project.
+GENERATION_MODEL = "qwen/qwen3.8-27b:free"
+GENERATION_FALLBACK_MODEL = "liquid/lfm-2.5-2.6b:free"
+GENERATION_SECOND_FALLBACK_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
+ROUTING_MODEL = "qwen/qwen3.8-27b:free"  # cheap classification task, doesn't need the larger model
+
+# max_retries=0: each tier gets exactly one fast attempt; the 3-model chain
+# is the redundancy, not retrying within a single tier (see history above).
+_TIMEOUT_SECONDS = 20
+_MAX_RETRIES = 0
 
 logger = logging.getLogger(__name__)
 
 
 @lru_cache
-def _build_gemini_llm(model: str) -> ChatGoogleGenerativeAI:
+def _build_llm(model: str) -> ChatOpenAI:
     settings = get_settings()
-    return ChatGoogleGenerativeAI(
+    return ChatOpenAI(
         model=model,
-        google_api_key=settings.gemini_api_key,
-        timeout=_GEMINI_TIMEOUT_SECONDS,
-        max_retries=_GEMINI_MAX_RETRIES,
+        api_key=settings.openrouter_api_key,
+        base_url=OPENROUTER_BASE_URL,
+        timeout=_TIMEOUT_SECONDS,
+        max_retries=_MAX_RETRIES,
     )
 
 
-@lru_cache
-def get_groq_llm() -> ChatGroq:
-    settings = get_settings()
-    return ChatGroq(
-        model_name=GROQ_MODEL,
-        groq_api_key=settings.groq_api_key,
-        request_timeout=_GROQ_TIMEOUT_SECONDS,
-        max_retries=_GROQ_MAX_RETRIES,
-    )
+def get_generation_llm() -> ChatOpenAI:
+    return _build_llm(GENERATION_MODEL)
 
 
-def get_generation_llm() -> ChatGoogleGenerativeAI:
-    return _build_gemini_llm(GENERATION_MODEL)
+def get_generation_fallback_llm() -> ChatOpenAI:
+    return _build_llm(GENERATION_FALLBACK_MODEL)
 
 
-def get_generation_fallback_llm() -> ChatGoogleGenerativeAI:
-    return _build_gemini_llm(GENERATION_FALLBACK_MODEL)
+def get_generation_second_fallback_llm() -> ChatOpenAI:
+    return _build_llm(GENERATION_SECOND_FALLBACK_MODEL)
 
 
-def get_routing_llm() -> ChatGoogleGenerativeAI:
-    return _build_gemini_llm(ROUTING_MODEL)
+def get_routing_llm() -> ChatOpenAI:
+    return _build_llm(ROUTING_MODEL)
 
 
 def _model_label(model: BaseChatModel) -> str:
-    return getattr(model, "model", None) or getattr(model, "model_name", None) or type(model).__name__
+    return getattr(model, "model_name", None) or getattr(model, "model", None) or type(model).__name__
 
 
 def invoke_with_fallback(messages: list, *models: BaseChatModel) -> str:
@@ -119,8 +117,10 @@ def invoke_with_fallback(messages: list, *models: BaseChatModel) -> str:
 
 
 def extract_text(message) -> str:
-    """Normalize a chat model's .content, which can be a plain string
-    (Groq) or a list of content-part dicts (Gemini, sometimes)."""
+    """Normalize a chat model's .content. Plain string for every model
+    seen through OpenRouter so far, but kept defensive -- Gemini's content
+    came back as a list of content-part dicts in earlier testing, so this
+    guards against any provider doing the same."""
     content = message.content
     if isinstance(content, str):
         return content
