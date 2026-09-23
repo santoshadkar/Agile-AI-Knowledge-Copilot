@@ -27,7 +27,7 @@ backend/   FastAPI + LangGraph — agentic RAG graph, ingestion API  → deploye
            └─ check / re-retrieve loop (if first retrieval looks insufficient)
 ```
 
-- **LLM (generation):** a three-tier fallback chain, not a single model — `gemini-flash-latest` → `gemini-flash-lite-latest` → Groq (`openai/gpt-oss-120b`). Originally scoped as Claude alone, switched because the Anthropic API requires a payment method on file and Gemini's free tier doesn't. Live testing during deployment surfaced two real Gemini failure modes a single model/provider can't route around: broad intermittent "high demand" 503s hitting multiple Gemini models at once, and a genuine per-model **daily** quota (~20 requests/day/model on the free tier, confirmed live via a `429 RESOURCE_EXHAUSTED` response) that doesn't clear until the next day. Groq runs on entirely separate infrastructure, so neither failure mode touches it — confirmed live by watching a request fall through Gemini's daily-quota error and land on Groq for a correct, cited answer.
+- **LLM (generation):** a three-model fallback chain via [OpenRouter](https://openrouter.ai) — `qwen/qwen3.8-27b:free` → `liquid/lfm-2.5-2.6b:free` → `nvidia/nemotron-3-super-120b-a12b:free`, three different underlying providers to reduce correlated-failure risk. Originally Claude, then Gemini, then Gemini+Groq — each swap driven by a real problem hit in production, not preference: Claude needs a payment method Anthropic's free tier doesn't; Gemini alone hit both broad intermittent capacity 503s and a hard per-model daily quota (confirmed live via a `429`); a naive retry-count fix then caused a 155-second latency regression (root cause: LangChain's `max_retries` was compounding against a *second*, hidden retry layer inside Google's own SDK). OpenRouter's one API simplified two separate provider SDKs into one, and every tier fails fast (`max_retries=0` — the chain itself is the redundancy, not retrying within a tier). Live-verified on the deployed instance: full requests, including ones that hit real `429`s on the first one or two tiers, consistently complete in **4-10 seconds**.
 - **Embeddings:** Voyage AI
 - **Vector store:** Qdrant Cloud (free tier) — chosen over Pinecone/pgvector for generous free-tier limits, clean LangChain integration via `langchain-qdrant`, and per-chunk metadata filtering (domain + source filename) without being tied to a single LLM vendor
 - **Orchestration:** LangChain (document loading/retrieval primitives) + LangGraph (the actual agentic flow, not a single chain)
@@ -75,7 +75,7 @@ pytest
 
 No real API keys needed — `tests/conftest.py` sets fake credentials before
 anything imports the app, and every test that would otherwise call
-Gemini/Voyage/Qdrant mocks that call out. Safe to run in CI with no `.env`
+OpenRouter/Voyage/Qdrant mocks that call out. Safe to run in CI with no `.env`
 at all.
 
 ### Ingest the sample docs
@@ -126,7 +126,7 @@ Full interactive docs at `/docs` once the backend is running. Summary:
   "domains_searched": ["agile-coaching"]
 }
 ```
-Returns `503` only if all three generation tiers fail (both Gemini models and Groq).
+Returns `503` only if all three OpenRouter models in the generation chain fail.
 
 **`POST /ingest`** (multipart form)
 - `file`: the PDF/DOCX/MD to ingest
@@ -139,8 +139,7 @@ Returns `422` with `{"reasons": [...]}` if the confidentiality guard trips and `
 
 | Variable | Where | Purpose |
 |---|---|---|
-| `GEMINI_API_KEY` | backend | Gemini API access, tiers 1-2 of the generation fallback chain |
-| `GROQ_API_KEY` | backend | Groq API access, tier 3 of the generation fallback chain |
+| `OPENROUTER_API_KEY` | backend | OpenRouter access for the 3-model generation fallback chain |
 | `VOYAGE_API_KEY` | backend | Voyage AI embeddings for ingestion + retrieval |
 | `QDRANT_URL` | backend | Qdrant Cloud cluster URL |
 | `QDRANT_API_KEY` | backend | Qdrant Cloud API key |
